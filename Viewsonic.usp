@@ -1,0 +1,125 @@
+// SIMPL+ MODULE: Viewsonic_Display_Wrapper
+#SYMBOL_NAME "Viewsonic CDE7530 (SIMPL# Wrapper)"
+#CATEGORY   "46" "Viewsonic"
+
+#DEFAULT_VOLATILE
+#ENABLE_STACK_CHECKING
+#ENABLE_TRACE
+
+#USER_SIMPLSHARP_LIBRARY "ViewsonicCDE"
+
+// ----- Parameters -----
+Integer_Parameter _skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,Port;
+String_Parameter IPAddress[32];
+
+#BEGIN_PARAMETER_PROPERTIES Port
+    PropValidUnits = UnitDecimal|UnitHex;
+    PropBounds = 0d, 65535d;
+#END_PARAMETER_PROPERTIES
+
+#BEGIN_PARAMETER_PROPERTIES IPAddress
+    PropValidUnits = UnitString;
+    PropDefaultUnit = UnitString;
+#END_PARAMETER_PROPERTIES
+
+// ----- Inputs -----
+// Connect must be a maintained high signal. Dropping it low will disconnect the socket.
+DIGITAL_INPUT Connect;
+DIGITAL_INPUT Power_On;
+DIGITAL_INPUT Power_Off;
+DIGITAL_INPUT Poll_Power;
+DIGITAL_INPUT Poll_Volume; 
+DIGITAL_INPUT Poll_Input;  
+DIGITAL_INPUT Volume_Up;
+DIGITAL_INPUT Volume_Down;
+
+// 1 = HDMI 1, 2 = HDMI 2, 3 = DP, 4 = VGA
+DIGITAL_INPUT Input_Poll[4,4];
+
+// ----- Outputs -----
+DIGITAL_OUTPUT Connected_fb;
+DIGITAL_OUTPUT Is_Power_On_fb;
+ANALOG_OUTPUT  Current_Input_fb;
+ANALOG_OUTPUT  Current_Volume_Out;
+
+// ----- Global Variables -----
+DisplayController myDisplay; 
+
+// ----- Callback Functions from C# -----
+CALLBACK FUNCTION OnConnectionCallback(INTEGER state) { Connected_fb = state; }
+CALLBACK FUNCTION OnPowerCallback(INTEGER state)      { Is_Power_On_fb = state; }
+CALLBACK FUNCTION OnInputCallback(INTEGER val)        { Current_Input_fb = val; }
+CALLBACK FUNCTION OnVolumeCallback(INTEGER val)       { Current_Volume_Out = val; }
+
+// ----- SIMPL+ Logic -----
+PUSH Connect
+{
+    myDisplay.Initialize(IPAddress, Port);
+}
+
+RELEASE Connect
+{
+    myDisplay.Disconnect();
+}
+
+PUSH Power_On    { myDisplay.PowerOn(); }
+PUSH Power_Off   { myDisplay.PowerOff(); }
+PUSH Poll_Power  { myDisplay.PollPower(); }
+PUSH Poll_Volume { myDisplay.PollVolume(); }
+PUSH Poll_Input  { myDisplay.PollInput(); }
+
+PUSH Input_Poll
+{
+    INTEGER i;
+    INTEGER viewsonicInputVal;
+    
+    i = GetLastModifiedArrayIndex();
+    
+    // Map the array index to the specific Viewsonic Hex/Dec codes
+    SWITCH (i)
+    {
+        CASE(1): { viewsonicInputVal = 4; }  // HDMI 1 = 004
+        CASE(2): { viewsonicInputVal = 14; } // HDMI 2 = 014
+        CASE(3): { viewsonicInputVal = 9; }  // DP = 009
+        CASE(4): { viewsonicInputVal = 6; }  // VGA = 006
+        DEFAULT: 
+        {
+            // Explicitly handle out-of-bounds indices
+            viewsonicInputVal = 0;
+            Trace("Viewsonic Error: Invalid Input Index %d received.", i);
+        }
+    }
+    
+    IF (viewsonicInputVal > 0)
+    {
+        myDisplay.SetInput(viewsonicInputVal);
+    }
+}
+
+PUSH Volume_Up
+{
+    // Uses the Output signal as the single source of truth for current state
+    IF (Current_Volume_Out < 100) 
+    {
+        myDisplay.SetVolume(Current_Volume_Out + 1);
+    }
+}
+
+PUSH Volume_Down
+{
+    IF (Current_Volume_Out > 0) 
+    {
+        myDisplay.SetVolume(Current_Volume_Out - 1);
+    }
+}
+
+// ----- Initialization -----
+FUNCTION Main()
+{
+    WaitForInitializationComplete();
+    
+    RegisterDelegate(myDisplay, OnConnectionChange, OnConnectionCallback);
+    RegisterDelegate(myDisplay, OnPowerChange, OnPowerCallback);
+    RegisterDelegate(myDisplay, OnInputChange, OnInputCallback);
+    RegisterDelegate(myDisplay, OnVolumeChange, OnVolumeCallback);
+}

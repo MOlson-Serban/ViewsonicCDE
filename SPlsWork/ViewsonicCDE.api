@@ -1,0 +1,33 @@
+namespace ViewsonicCDE;
+{
+     class DisplayController 
+    {
+        // class delegates
+        delegate FUNCTION StateChangeHandler ( INTEGER state );
+
+        // class events
+
+        // class functions
+        FUNCTION Initialize ( STRING ipAddress , INTEGER port );
+        FUNCTION Disconnect ();
+        FUNCTION PowerOn ();
+        FUNCTION PowerOff ();
+        FUNCTION PollPower ();
+        FUNCTION PollVolume ();
+        FUNCTION PollInput ();
+        FUNCTION SetInput ( INTEGER inputVal );
+        FUNCTION SetVolume ( INTEGER volVal );
+        SIGNED_LONG_INTEGER_FUNCTION GetHashCode ();
+        STRING_FUNCTION ToString ();
+
+        // class variables
+        INTEGER __class_id__;
+
+        // class properties
+        DelegateProperty StateChangeHandler OnConnectionChange;
+        DelegateProperty StateChangeHandler OnPowerChange;
+        DelegateProperty StateChangeHandler OnInputChange;
+        DelegateProperty StateChangeHandler OnVolumeChange;
+    };
+}
+
