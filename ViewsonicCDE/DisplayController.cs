@@ -8,7 +8,7 @@ namespace ViewsonicCDE
 {
     public class DisplayController
     {
-        // --- Constants (Magic Number Cleanup) ---
+        // --- Constants ---
         private const int HEARTBEAT_INTERVAL_MS = 45000;
         private const int RECONNECT_BASE_MS = 5000;
         private const int RECONNECT_MAX_MS = 60000;
@@ -51,7 +51,7 @@ namespace ViewsonicCDE
         public StateChangeHandler OnVolumeChange { get; set; }
 
         // =========================================================================
-        // CONNECTION LIFECYCLE (Addresses 1.1, 1.2, 1.3)
+        // CONNECTION LIFECYCLE
         // =========================================================================
         public void Initialize(string ipAddress, ushort port)
         {
@@ -137,7 +137,7 @@ namespace ViewsonicCDE
                 {
                     lock (_timerLock)
                     {
-                        if (_reconnectTimer == null) // Prevent stacking (1.1)
+                        if (_reconnectTimer == null) // Prevent stacking
                         {
                             _reconnectTimer = new CTimer(ReconnectCallback, null, _currentBackoffMs);
                         }
@@ -163,7 +163,7 @@ namespace ViewsonicCDE
         }
 
         // =========================================================================
-        // TIMERS & HEARTBEAT (Addresses 3.1, 3.2, 6.2)
+        // TIMERS & HEARTBEAT
         // =========================================================================
         private void StopTimer(ref CTimer timer)
         {
@@ -187,14 +187,14 @@ namespace ViewsonicCDE
 
         private void HeartbeatCallback(object userSpecific)
         {
-            // Now polls all states to prevent drift (3.2)
+            // Polls all states to prevent drift
             PollPower();
             PollInput();
             PollVolume();
         }
 
         // =========================================================================
-        // COMMAND QUEUE & TRANSMISSION (Addresses 2.1, 5.2, 6.1)
+        // COMMAND QUEUE & TRANSMISSION
         // =========================================================================
         private void EnqueueCommand(string command, int type, ushort val)
         {
@@ -279,7 +279,7 @@ namespace ViewsonicCDE
         private void SendCallback(TCPClient client, int numberOfBytesSent) { }
 
         // =========================================================================
-        // RECEPTION & PARSING (Addresses 4.1, 4.2, 5.1)
+        // RECEPTION & PARSING
         // =========================================================================
         private void ReceiveCallback(TCPClient client, int numberOfBytesReceived)
         {
@@ -291,7 +291,7 @@ namespace ViewsonicCDE
                 {
                     _rxBuffer += incoming;
 
-                    // Safe Trim: Find the last complete message boundary (4.1)
+                    // Safe Trim: Find the last complete message boundary
                     if (_rxBuffer.Length > MAX_BUFFER_SIZE)
                     {
                         int lastCr = _rxBuffer.LastIndexOf('\x0D');
@@ -318,10 +318,10 @@ namespace ViewsonicCDE
                 string msg = _rxBuffer.Substring(0, crPos);
                 _rxBuffer = _rxBuffer.Substring(crPos + 1);
 
-                // Variables for safe delegate invocation (2.2)
+                // Variables for safe delegate invocation
                 Action safeInvoke = null;
 
-                if (msg.Length >= 4) // Validation (5.1)
+                if (msg.Length >= 4) // Validation
                 {
                     char typeChar = msg[3];
 
@@ -352,7 +352,7 @@ namespace ViewsonicCDE
                         char cmdChar = msg[4];
                         string valString = msg.Substring(5, 3);
 
-                        // Validation of TryParse (4.2)
+                        // Validation of TryParse
                         if (ushort.TryParse(valString, out ushort parsedVal))
                         {
                             if (cmdChar == '!')
@@ -368,7 +368,7 @@ namespace ViewsonicCDE
                     }
                 }
 
-                // Invoke safely outside of all locks (2.2)
+                // Invoke safely outside of all locks
                 safeInvoke?.Invoke();
 
                 // Trigger next item in queue
@@ -388,10 +388,9 @@ namespace ViewsonicCDE
 
         public void PowerOff()
         {
-            // Natively solves the PowerOff -> Wait -> Enter requirement safely!
             EnqueueCommand("801s!000\x0D", 1, 0);
             EnqueueDelay(2500);
-            EnqueueCommand("801sA004\x0D", 0, 0); // 0 type means don't track state for the Enter key
+            EnqueueCommand("801sA004\x0D", 0, 0);
         }
 
         public void SetInput(ushort inputVal)

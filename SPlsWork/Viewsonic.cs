@@ -42,7 +42,7 @@ namespace UserModule_VIEWSONIC
             {
                 SplusExecutionContext __context__ = SplusSimplSharpDelegateThreadStartCode();
                 
-                __context__.SourceCodeLine = 49;
+                __context__.SourceCodeLine = 51;
                 CONNECTED_FB  .Value = (ushort) ( STATE ) ; 
                 
                 
@@ -56,7 +56,7 @@ namespace UserModule_VIEWSONIC
             {
                 SplusExecutionContext __context__ = SplusSimplSharpDelegateThreadStartCode();
                 
-                __context__.SourceCodeLine = 50;
+                __context__.SourceCodeLine = 52;
                 IS_POWER_ON_FB  .Value = (ushort) ( STATE ) ; 
                 
                 
@@ -70,7 +70,7 @@ namespace UserModule_VIEWSONIC
             {
                 SplusExecutionContext __context__ = SplusSimplSharpDelegateThreadStartCode();
                 
-                __context__.SourceCodeLine = 51;
+                __context__.SourceCodeLine = 53;
                 CURRENT_INPUT_FB  .Value = (ushort) ( VAL ) ; 
                 
                 
@@ -84,7 +84,7 @@ namespace UserModule_VIEWSONIC
             {
                 SplusExecutionContext __context__ = SplusSimplSharpDelegateThreadStartCode();
                 
-                __context__.SourceCodeLine = 52;
+                __context__.SourceCodeLine = 54;
                 CURRENT_VOLUME_OUT  .Value = (ushort) ( VAL ) ; 
                 
                 
@@ -100,7 +100,7 @@ namespace UserModule_VIEWSONIC
             {
                 SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
                 
-                __context__.SourceCodeLine = 57;
+                __context__.SourceCodeLine = 59;
                 MYDISPLAY . Initialize ( IPADDRESS  .ToString(), (ushort)( PORT  .Value )) ; 
                 
                 
@@ -119,7 +119,7 @@ namespace UserModule_VIEWSONIC
         {
             SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
             
-            __context__.SourceCodeLine = 62;
+            __context__.SourceCodeLine = 64;
             MYDISPLAY . Disconnect ( ) ; 
             
             
@@ -138,7 +138,7 @@ object POWER_ON_OnPush_2 ( Object __EventInfo__ )
     {
         SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
         
-        __context__.SourceCodeLine = 65;
+        __context__.SourceCodeLine = 67;
         MYDISPLAY . PowerOn ( ) ; 
         
         
@@ -157,7 +157,7 @@ object POWER_OFF_OnPush_3 ( Object __EventInfo__ )
     {
         SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
         
-        __context__.SourceCodeLine = 66;
+        __context__.SourceCodeLine = 68;
         MYDISPLAY . PowerOff ( ) ; 
         
         
@@ -176,7 +176,7 @@ object POLL_POWER_OnPush_4 ( Object __EventInfo__ )
     {
         SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
         
-        __context__.SourceCodeLine = 67;
+        __context__.SourceCodeLine = 69;
         MYDISPLAY . PollPower ( ) ; 
         
         
@@ -195,7 +195,7 @@ object POLL_VOLUME_OnPush_5 ( Object __EventInfo__ )
     {
         SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
         
-        __context__.SourceCodeLine = 68;
+        __context__.SourceCodeLine = 70;
         MYDISPLAY . PollVolume ( ) ; 
         
         
@@ -214,7 +214,7 @@ object POLL_INPUT_OnPush_6 ( Object __EventInfo__ )
     {
         SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
         
-        __context__.SourceCodeLine = 69;
+        __context__.SourceCodeLine = 71;
         MYDISPLAY . PollInput ( ) ; 
         
         
@@ -237,9 +237,9 @@ object INPUT_POLL_OnPush_7 ( Object __EventInfo__ )
         ushort VIEWSONICINPUTVAL = 0;
         
         
-        __context__.SourceCodeLine = 76;
+        __context__.SourceCodeLine = 78;
         I = (ushort) ( Functions.GetLastModifiedArrayIndex( __SignalEventArg__ ) ) ; 
-        __context__.SourceCodeLine = 79;
+        __context__.SourceCodeLine = 81;
         
             {
             int __SPLS_TMPVAR__SWTCH_1__ = ((int)I);
@@ -247,33 +247,33 @@ object INPUT_POLL_OnPush_7 ( Object __EventInfo__ )
                 { 
                 if  ( Functions.TestForTrue  (  ( __SPLS_TMPVAR__SWTCH_1__ == ( 1) ) ) ) 
                     { 
-                    __context__.SourceCodeLine = 81;
+                    __context__.SourceCodeLine = 83;
                     VIEWSONICINPUTVAL = (ushort) ( 4 ) ; 
                     } 
                 
                 else if  ( Functions.TestForTrue  (  ( __SPLS_TMPVAR__SWTCH_1__ == ( 2) ) ) ) 
                     { 
-                    __context__.SourceCodeLine = 82;
+                    __context__.SourceCodeLine = 84;
                     VIEWSONICINPUTVAL = (ushort) ( 14 ) ; 
                     } 
                 
                 else if  ( Functions.TestForTrue  (  ( __SPLS_TMPVAR__SWTCH_1__ == ( 3) ) ) ) 
                     { 
-                    __context__.SourceCodeLine = 83;
+                    __context__.SourceCodeLine = 85;
                     VIEWSONICINPUTVAL = (ushort) ( 9 ) ; 
                     } 
                 
                 else if  ( Functions.TestForTrue  (  ( __SPLS_TMPVAR__SWTCH_1__ == ( 4) ) ) ) 
                     { 
-                    __context__.SourceCodeLine = 84;
+                    __context__.SourceCodeLine = 86;
                     VIEWSONICINPUTVAL = (ushort) ( 6 ) ; 
                     } 
                 
                 else 
                     { 
-                    __context__.SourceCodeLine = 88;
+                    __context__.SourceCodeLine = 90;
                     VIEWSONICINPUTVAL = (ushort) ( 0 ) ; 
-                    __context__.SourceCodeLine = 89;
+                    __context__.SourceCodeLine = 91;
                     Trace( "Viewsonic Error: Invalid Input Index {0:d} received.", (short)I) ; 
                     } 
                 
@@ -282,10 +282,10 @@ object INPUT_POLL_OnPush_7 ( Object __EventInfo__ )
             }
             
         
-        __context__.SourceCodeLine = 93;
+        __context__.SourceCodeLine = 95;
         if ( Functions.TestForTrue  ( ( Functions.BoolToInt ( VIEWSONICINPUTVAL > 0 ))  ) ) 
             { 
-            __context__.SourceCodeLine = 95;
+            __context__.SourceCodeLine = 97;
             MYDISPLAY . SetInput ( (ushort)( VIEWSONICINPUTVAL )) ; 
             } 
         
@@ -306,10 +306,10 @@ object VOLUME_UP_OnPush_8 ( Object __EventInfo__ )
     {
         SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
         
-        __context__.SourceCodeLine = 102;
+        __context__.SourceCodeLine = 104;
         if ( Functions.TestForTrue  ( ( Functions.BoolToInt ( CURRENT_VOLUME_OUT  .Value < 100 ))  ) ) 
             { 
-            __context__.SourceCodeLine = 104;
+            __context__.SourceCodeLine = 106;
             MYDISPLAY . SetVolume ( (ushort)( (CURRENT_VOLUME_OUT  .Value + 1) )) ; 
             } 
         
@@ -330,10 +330,10 @@ object VOLUME_DOWN_OnPush_9 ( Object __EventInfo__ )
     {
         SplusExecutionContext __context__ = SplusThreadStartCode(__SignalEventArg__);
         
-        __context__.SourceCodeLine = 110;
+        __context__.SourceCodeLine = 112;
         if ( Functions.TestForTrue  ( ( Functions.BoolToInt ( CURRENT_VOLUME_OUT  .Value > 0 ))  ) ) 
             { 
-            __context__.SourceCodeLine = 112;
+            __context__.SourceCodeLine = 114;
             MYDISPLAY . SetVolume ( (ushort)( (CURRENT_VOLUME_OUT  .Value - 1) )) ; 
             } 
         
@@ -352,18 +352,18 @@ public override object FunctionMain (  object __obj__ )
     {
         SplusExecutionContext __context__ = SplusFunctionMainStartCode();
         
-        __context__.SourceCodeLine = 119;
-        WaitForInitializationComplete ( ) ; 
         __context__.SourceCodeLine = 121;
+        WaitForInitializationComplete ( ) ; 
+        __context__.SourceCodeLine = 123;
         // RegisterDelegate( MYDISPLAY , ONCONNECTIONCHANGE , ONCONNECTIONCALLBACK ) 
         MYDISPLAY .OnConnectionChange  = ONCONNECTIONCALLBACK; ; 
-        __context__.SourceCodeLine = 122;
+        __context__.SourceCodeLine = 124;
         // RegisterDelegate( MYDISPLAY , ONPOWERCHANGE , ONPOWERCALLBACK ) 
         MYDISPLAY .OnPowerChange  = ONPOWERCALLBACK; ; 
-        __context__.SourceCodeLine = 123;
+        __context__.SourceCodeLine = 125;
         // RegisterDelegate( MYDISPLAY , ONINPUTCHANGE , ONINPUTCALLBACK ) 
         MYDISPLAY .OnInputChange  = ONINPUTCALLBACK; ; 
-        __context__.SourceCodeLine = 124;
+        __context__.SourceCodeLine = 126;
         // RegisterDelegate( MYDISPLAY , ONVOLUMECHANGE , ONVOLUMECALLBACK ) 
         MYDISPLAY .OnVolumeChange  = ONVOLUMECALLBACK; ; 
         
