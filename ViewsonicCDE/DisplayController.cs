@@ -150,7 +150,10 @@ namespace ViewsonicCDE
         {
             lock (_timerLock) { StopTimer(ref _reconnectTimer); }
 
-            // Exponential Backoff (1.3)
+            // Print the attempt to the Crestron Error Log / Console
+            ErrorLog.Notice(string.Format("ViewsonicCDE: Attempting reconnect... Next backoff will be {0}ms", _currentBackoffMs));
+
+            // Exponential Backoff calculation
             _currentBackoffMs = Math.Min(_currentBackoffMs * 2, RECONNECT_MAX_MS);
 
             if (_enableConnection && _tcpClient != null && _tcpClient.ClientStatus != SocketStatus.SOCKET_STATUS_CONNECTED)
