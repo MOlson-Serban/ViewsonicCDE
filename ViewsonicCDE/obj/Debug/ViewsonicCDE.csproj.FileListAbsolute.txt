@@ -31,3 +31,36 @@ D:\No Sync Projects\Modules\Viewsonic Sharp\ViewsonicCDE\obj\Debug\ViewsonicCDE.
 D:\No Sync Projects\Modules\Viewsonic Sharp\ViewsonicCDE\obj\Debug\Viewsoni.FF3A69C3.Up2Date
 D:\No Sync Projects\Modules\Viewsonic Sharp\ViewsonicCDE\obj\Debug\ViewsonicCDE.dll
 D:\No Sync Projects\Modules\Viewsonic Sharp\ViewsonicCDE\obj\Debug\ViewsonicCDE.pdb
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\ViewsonicCDE.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\ViewsonicCDE.pdb
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpAutoUpdateInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCloudClientInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCryptographyInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCustomAttributesInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCWSHelperInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpExchangeWebServices.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpHelperInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpNewtonsoft.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpOnvifInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpProgrammingInterfaces.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpReflectionInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpSQLHelperInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpTimerEventInterface.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpAutoUpdateInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCloudClientInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCryptographyInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCustomAttributesInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpCWSHelperInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpExchangeWebServices.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpHelperInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpNewtonsoft.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpOnvifInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpProgrammingInterfaces.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpReflectionInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpSQLHelperInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\bin\Debug\SimplSharpTimerEventInterface.xml
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\obj\Debug\ViewsonicCDE.csproj.AssemblyReference.cache
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\obj\Debug\ViewsonicCDE.csproj.CoreCompileInputs.cache
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\obj\Debug\Viewsoni.FF3A69C3.Up2Date
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\obj\Debug\ViewsonicCDE.dll
+D:\No Sync Projects\Modules\Viewsonic\ViewsonicCDE\obj\Debug\ViewsonicCDE.pdb

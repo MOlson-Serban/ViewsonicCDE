@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Text;
+using System.Collections.Generic;
 using Crestron.SimplSharp;
 using Crestron.SimplSharp.CrestronSockets;
 
@@ -7,37 +8,57 @@ namespace ViewsonicCDE
 {
     public class DisplayController
     {
+        // --- Constants (Magic Number Cleanup) ---
+        private const int HEARTBEAT_INTERVAL_MS = 45000;
+        private const int RECONNECT_BASE_MS = 5000;
+        private const int RECONNECT_MAX_MS = 60000;
+        private const int MAX_BUFFER_SIZE = 1024;
+        private const int CMD_TIMEOUT_MS = 3000;
+
+        // --- Infrastructure ---
         private TCPClient _tcpClient;
         private CTimer _heartbeatTimer;
         private CTimer _reconnectTimer;
-        private CTimer _powerOffEnterTimer;
+        private CTimer _queueTimer; // Handles both command timeouts and intended delays
+
         private string _rxBuffer = "";
-
-        private readonly object _bufferLock = new object();
-        private readonly object _stateLock = new object();
-        private readonly object _timerLock = new object();
-
+        private int _currentBackoffMs = RECONNECT_BASE_MS;
         private bool _enableConnection = false;
 
-        private int _pendingCmdType = 0;
-        private int _pendingPower = 0;
-        private int _pendingInput = 0;
-        private int _pendingVolume = 0;
+        private readonly object _bufferLock = new object();
+        private readonly object _queueLock = new object();
+        private readonly object _timerLock = new object();
 
+        // --- Command Queue Infrastructure ---
+        private class QueuedCmd
+        {
+            public string CommandString;
+            public int CmdType; // 0=Raw/Get, 1=Power, 2=Input, 3=Volume
+            public ushort PendingValue;
+            public bool IsDelay;
+            public int DelayMs;
+        }
+
+        private Queue<QueuedCmd> _cmdQueue = new Queue<QueuedCmd>();
+        private QueuedCmd _activeCmd = null;
+        private bool _isWaitingForReply = false;
+
+        // --- Delegates ---
         public delegate void StateChangeHandler(ushort state);
         public StateChangeHandler OnConnectionChange { get; set; }
         public StateChangeHandler OnPowerChange { get; set; }
         public StateChangeHandler OnInputChange { get; set; }
         public StateChangeHandler OnVolumeChange { get; set; }
 
+        // =========================================================================
+        // CONNECTION LIFECYCLE (Addresses 1.1, 1.2, 1.3)
+        // =========================================================================
         public void Initialize(string ipAddress, ushort port)
         {
             try
             {
                 _enableConnection = true;
-
-                if (_tcpClient != null && _tcpClient.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
-                    _tcpClient.DisconnectFromServer();
+                CleanupClient(); // Properly disposes old client before creating a new one
 
                 _tcpClient = new TCPClient(ipAddress, port, 4096);
                 _tcpClient.SocketStatusChange += OnSocketStatusChange;
@@ -51,17 +72,35 @@ namespace ViewsonicCDE
 
         public void Disconnect()
         {
-            _enableConnection = false; // Prevent auto-reconnect
-            StopTimers();
+            _enableConnection = false;
+            StopAllTimers();
+            CleanupClient();
 
+            lock (_queueLock)
+            {
+                _cmdQueue.Clear();
+                _activeCmd = null;
+                _isWaitingForReply = false;
+            }
+        }
+
+        private void CleanupClient()
+        {
             if (_tcpClient != null)
-                _tcpClient.DisconnectFromServer();
+            {
+                _tcpClient.SocketStatusChange -= OnSocketStatusChange;
+                if (_tcpClient.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
+                    _tcpClient.DisconnectFromServer();
+                _tcpClient.Dispose();
+                _tcpClient = null;
+            }
         }
 
         private void ConnectCallback(TCPClient client)
         {
             if (client.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
             {
+                _currentBackoffMs = RECONNECT_BASE_MS; // Reset backoff on success
                 client.ReceiveDataAsync(ReceiveCallback);
 
                 PollPower();
@@ -74,30 +113,34 @@ namespace ViewsonicCDE
         {
             if (clientSocketStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
             {
-                if (OnConnectionChange != null) OnConnectionChange(1);
+                OnConnectionChange?.Invoke(1);
 
                 lock (_timerLock)
                 {
-                    if (_reconnectTimer != null)
-                    {
-                        _reconnectTimer.Stop();
-                        _reconnectTimer.Dispose();
-                        _reconnectTimer = null;
-                    }
-                    _heartbeatTimer = new CTimer(HeartbeatCallback, null, 45000, 45000);
+                    StopTimer(ref _reconnectTimer);
+                    _heartbeatTimer = new CTimer(HeartbeatCallback, null, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS);
                 }
             }
             else
             {
-                if (OnConnectionChange != null) OnConnectionChange(0);
-                StopTimers();
+                OnConnectionChange?.Invoke(0);
+                StopTimer(ref _heartbeatTimer);
 
-                // Auto-Reconnect Logic
+                lock (_queueLock)
+                {
+                    _cmdQueue.Clear();
+                    _isWaitingForReply = false;
+                    _activeCmd = null;
+                }
+
                 if (_enableConnection)
                 {
                     lock (_timerLock)
                     {
-                        _reconnectTimer = new CTimer(ReconnectCallback, null, 5000);
+                        if (_reconnectTimer == null) // Prevent stacking (1.1)
+                        {
+                            _reconnectTimer = new CTimer(ReconnectCallback, null, _currentBackoffMs);
+                        }
                     }
                 }
             }
@@ -105,56 +148,136 @@ namespace ViewsonicCDE
 
         private void ReconnectCallback(object userSpecific)
         {
+            lock (_timerLock) { StopTimer(ref _reconnectTimer); }
+
+            // Exponential Backoff (1.3)
+            _currentBackoffMs = Math.Min(_currentBackoffMs * 2, RECONNECT_MAX_MS);
+
             if (_enableConnection && _tcpClient != null && _tcpClient.ClientStatus != SocketStatus.SOCKET_STATUS_CONNECTED)
             {
                 _tcpClient.ConnectToServerAsync(ConnectCallback);
             }
         }
 
-        private void StopTimers()
+        // =========================================================================
+        // TIMERS & HEARTBEAT (Addresses 3.1, 3.2, 6.2)
+        // =========================================================================
+        private void StopTimer(ref CTimer timer)
+        {
+            if (timer != null)
+            {
+                timer.Stop();
+                timer.Dispose();
+                timer = null;
+            }
+        }
+
+        private void StopAllTimers()
         {
             lock (_timerLock)
             {
-                if (_heartbeatTimer != null)
-                {
-                    _heartbeatTimer.Stop();
-                    _heartbeatTimer.Dispose();
-                    _heartbeatTimer = null;
-                }
-
-                // Added disposal for the reconnect timer
-                if (_reconnectTimer != null)
-                {
-                    _reconnectTimer.Stop();
-                    _reconnectTimer.Dispose();
-                    _reconnectTimer = null;
-                }
+                StopTimer(ref _heartbeatTimer);
+                StopTimer(ref _reconnectTimer);
+                StopTimer(ref _queueTimer);
             }
         }
 
         private void HeartbeatCallback(object userSpecific)
         {
+            // Now polls all states to prevent drift (3.2)
             PollPower();
+            PollInput();
+            PollVolume();
         }
 
-        private void SendCommand(string command)
+        // =========================================================================
+        // COMMAND QUEUE & TRANSMISSION (Addresses 2.1, 5.2, 6.1)
+        // =========================================================================
+        private void EnqueueCommand(string command, int type, ushort val)
         {
-            try
+            lock (_queueLock)
             {
-                if (_tcpClient != null && _tcpClient.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
+                _cmdQueue.Enqueue(new QueuedCmd { CommandString = command, CmdType = type, PendingValue = val, IsDelay = false });
+            }
+            ProcessQueue();
+        }
+
+        private void EnqueueDelay(int delayMs)
+        {
+            lock (_queueLock)
+            {
+                _cmdQueue.Enqueue(new QueuedCmd { IsDelay = true, DelayMs = delayMs });
+            }
+            ProcessQueue();
+        }
+
+        private void ProcessQueue()
+        {
+            lock (_queueLock)
+            {
+                if (_isWaitingForReply || _cmdQueue.Count == 0) return;
+
+                _activeCmd = _cmdQueue.Dequeue();
+                _isWaitingForReply = true;
+
+                if (_activeCmd.IsDelay)
                 {
-                    byte[] bytes = Encoding.ASCII.GetBytes(command);
-                    _tcpClient.SendDataAsync(bytes, bytes.Length, SendCallback);
+                    lock (_timerLock)
+                    {
+                        StopTimer(ref _queueTimer);
+                        _queueTimer = new CTimer(QueueTimeoutCallback, null, _activeCmd.DelayMs);
+                    }
+                }
+                else
+                {
+                    try
+                    {
+                        if (_tcpClient != null && _tcpClient.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
+                        {
+                            byte[] bytes = Encoding.ASCII.GetBytes(_activeCmd.CommandString);
+                            _tcpClient.SendDataAsync(bytes, bytes.Length, SendCallback);
+
+                            lock (_timerLock)
+                            {
+                                StopTimer(ref _queueTimer);
+                                _queueTimer = new CTimer(QueueTimeoutCallback, null, CMD_TIMEOUT_MS);
+                            }
+                        }
+                        else
+                        {
+                            ClearActiveCommand(); // Socket dead, dump command
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        ErrorLog.Error("ViewsonicCDE Send Error: " + ex.Message);
+                        ClearActiveCommand();
+                    }
                 }
             }
-            catch (Exception ex)
+        }
+
+        private void QueueTimeoutCallback(object specific)
+        {
+            lock (_queueLock)
             {
-                ErrorLog.Error("ViewsonicCDE Send Error: " + ex.Message);
+                ClearActiveCommand(); // Timeout reached or Delay finished, move to next
             }
+            ProcessQueue();
+        }
+
+        private void ClearActiveCommand()
+        {
+            _isWaitingForReply = false;
+            _activeCmd = null;
+            lock (_timerLock) { StopTimer(ref _queueTimer); }
         }
 
         private void SendCallback(TCPClient client, int numberOfBytesSent) { }
 
+        // =========================================================================
+        // RECEPTION & PARSING (Addresses 4.1, 4.2, 5.1)
+        // =========================================================================
         private void ReceiveCallback(TCPClient client, int numberOfBytesReceived)
         {
             if (numberOfBytesReceived > 0)
@@ -165,10 +288,15 @@ namespace ViewsonicCDE
                 {
                     _rxBuffer += incoming;
 
-                    // Non-destructive overflow protection
-                    if (_rxBuffer.Length > 512)
+                    // Safe Trim: Find the last complete message boundary (4.1)
+                    if (_rxBuffer.Length > MAX_BUFFER_SIZE)
                     {
-                        _rxBuffer = _rxBuffer.Substring(256);
+                        int lastCr = _rxBuffer.LastIndexOf('\x0D');
+                        if (lastCr >= 0 && lastCr < _rxBuffer.Length - 1)
+                            _rxBuffer = _rxBuffer.Substring(lastCr + 1);
+                        else
+                            _rxBuffer = ""; // No CR found in massive buffer, dump corrupt data
+
                         ErrorLog.Notice("ViewsonicCDE: Buffer trimmed to prevent overflow.");
                     }
 
@@ -187,98 +315,90 @@ namespace ViewsonicCDE
                 string msg = _rxBuffer.Substring(0, crPos);
                 _rxBuffer = _rxBuffer.Substring(crPos + 1);
 
-                if (msg.Length >= 4)
+                // Variables for safe delegate invocation (2.2)
+                Action safeInvoke = null;
+
+                if (msg.Length >= 4) // Validation (5.1)
                 {
                     char typeChar = msg[3];
 
+                    // --- ACK Handling ---
                     if (typeChar == '+')
                     {
-                        lock (_stateLock)
+                        lock (_queueLock)
                         {
-                            if (_pendingCmdType == 1 && OnPowerChange != null) OnPowerChange((ushort)_pendingPower);
-                            else if (_pendingCmdType == 2 && OnInputChange != null) OnInputChange((ushort)_pendingInput);
-                            else if (_pendingCmdType == 3 && OnVolumeChange != null) OnVolumeChange((ushort)_pendingVolume);
-                            _pendingCmdType = 0;
+                            if (_activeCmd != null && _activeCmd.CmdType != 0)
+                            {
+                                ushort val = _activeCmd.PendingValue;
+                                if (_activeCmd.CmdType == 1) safeInvoke = () => OnPowerChange?.Invoke(val);
+                                else if (_activeCmd.CmdType == 2) safeInvoke = () => OnInputChange?.Invoke(val);
+                                else if (_activeCmd.CmdType == 3) safeInvoke = () => OnVolumeChange?.Invoke(val);
+                            }
+                            ClearActiveCommand(); // Command acknowledged, advance queue
                         }
                     }
+                    // --- NACK Handling ---
                     else if (typeChar == '-')
                     {
-                        lock (_stateLock) { _pendingCmdType = 0; }
+                        ErrorLog.Notice("ViewsonicCDE: Command Rejected.");
+                        lock (_queueLock) { ClearActiveCommand(); }
                     }
+                    // --- Read Reply Handling ---
                     else if (typeChar == 'r' && msg.Length >= 8)
                     {
                         char cmdChar = msg[4];
                         string valString = msg.Substring(5, 3);
-                        ushort parsedVal;
-                        ushort.TryParse(valString, out parsedVal);
 
-                        if (cmdChar == '!')
+                        // Validation of TryParse (4.2)
+                        if (ushort.TryParse(valString, out ushort parsedVal))
                         {
-                            if (valString == "001" && OnPowerChange != null) OnPowerChange(1);
-                            else if (valString == "000" && OnPowerChange != null) OnPowerChange(0);
+                            if (cmdChar == '!')
+                            {
+                                if (valString == "001") safeInvoke = () => OnPowerChange?.Invoke(1);
+                                else if (valString == "000") safeInvoke = () => OnPowerChange?.Invoke(0);
+                            }
+                            else if (cmdChar == 'f') safeInvoke = () => OnVolumeChange?.Invoke(parsedVal);
+                            else if (cmdChar == '"') safeInvoke = () => OnInputChange?.Invoke(parsedVal);
                         }
-                        else if (cmdChar == 'f' && OnVolumeChange != null)
-                        {
-                            OnVolumeChange(parsedVal);
-                        }
-                        else if (cmdChar == '"' && OnInputChange != null)
-                        {
-                            OnInputChange(parsedVal);
-                        }
+
+                        lock (_queueLock) { ClearActiveCommand(); } // Read reply fulfills a Get request
                     }
                 }
+
+                // Invoke safely outside of all locks (2.2)
+                safeInvoke?.Invoke();
+
+                // Trigger next item in queue
+                ProcessQueue();
+
                 crPos = _rxBuffer.IndexOf('\x0D');
             }
         }
 
-        public void PowerOn() { lock (_stateLock) { _pendingCmdType = 1; _pendingPower = 1; } SendCommand("801s!001\x0D"); }
+        // =========================================================================
+        // PUBLIC CONTROL METHODS
+        // =========================================================================
+        public void PowerOn() { EnqueueCommand("801s!001\x0D", 1, 1); }
+        public void PollPower() { EnqueueCommand("501g!\x0D", 0, 0); }
+        public void PollVolume() { EnqueueCommand("501gf\x0D", 0, 0); }
+        public void PollInput() { EnqueueCommand("501g\"\x0D", 0, 0); }
 
         public void PowerOff()
         {
-            lock (_stateLock)
-            {
-                _pendingCmdType = 1;
-                _pendingPower = 0;
-            }
-
-            // 1. Send the initial Power Off command
-            SendCommand("801s!000\x0D");
-
-            // 2. Start a 2500ms timer to send the Enter key confirmation. 
-            // Omitting the 4th parameter defaults it to a one-shot timer.
-            _powerOffEnterTimer = new CTimer(SendPowerOffEnterCallback, null, 700);
+            // Natively solves the PowerOff -> Wait -> Enter requirement safely!
+            EnqueueCommand("801s!000\x0D", 1, 0);
+            EnqueueDelay(2500);
+            EnqueueCommand("801sA004\x0D", 0, 0); // 0 type means don't track state for the Enter key
         }
-
-        private void SendPowerOffEnterCallback(object userSpecific)
-        {
-            // Send the Key Pad 'Enter' command (Command 'A', Value '004')
-            SendCommand("801sA004\x0D");
-
-            // Notice: We do NOT call _powerOffEnterTimer.Dispose() here to prevent thread crashing.
-        }
-
-        public void PollPower() { SendCommand("501g!\x0D"); }
-        public void PollVolume() { SendCommand("501gf\x0D"); }
-        public void PollInput() { SendCommand("501g\"\x0D"); }
 
         public void SetInput(ushort inputVal)
         {
-            lock (_stateLock)
-            {
-                _pendingCmdType = 2;
-                _pendingInput = inputVal;
-            }
-            SendCommand(string.Format("801s\"{0:D3}\x0D", inputVal));
+            EnqueueCommand(string.Format("801s\"{0:D3}\x0D", inputVal), 2, inputVal);
         }
 
         public void SetVolume(ushort volVal)
         {
-            lock (_stateLock)
-            {
-                _pendingCmdType = 3;
-                _pendingVolume = volVal;
-            }
-            SendCommand(string.Format("801sf{0:D3}\x0D", volVal));
+            EnqueueCommand(string.Format("801sf{0:D3}\x0D", volVal), 3, volVal);
         }
     }
 }
