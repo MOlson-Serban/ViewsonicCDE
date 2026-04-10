@@ -389,7 +389,7 @@ namespace ViewsonicCDE
         public void PowerOff()
         {
             EnqueueCommand("801s!000\x0D", 1, 0);
-            EnqueueDelay(2500);
+            EnqueueDelay(750);
             EnqueueCommand("801sA004\x0D", 0, 0);
         }
 
