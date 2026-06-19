@@ -119,4 +119,30 @@ PUSH Input_Select
 
 PUSH Volume_Up
 {
-    // Drive from the local shadow so rapid p
+    // Drive from the local shadow so rapid presses don't read stale feedback.
+    IF (volumeState < 100)
+    {
+        volumeState = volumeState + 1;
+        myDisplay.SetVolume(volumeState);
+    }
+}
+
+PUSH Volume_Down
+{
+    IF (volumeState > 0)
+    {
+        volumeState = volumeState - 1;
+        myDisplay.SetVolume(volumeState);
+    }
+}
+
+// ----- Initialization -----
+FUNCTION Main()
+{
+    WaitForInitializationComplete();
+    
+    RegisterDelegate(myDisplay, OnConnectionChange, OnConnectionCallback);
+    RegisterDelegate(myDisplay, OnPowerChange, OnPowerCallback);
+    RegisterDelegate(myDisplay, OnInputChange, OnInputCallback);
+    RegisterDelegate(myDisplay, OnVolumeChange, OnVolumeCallback);
+}
