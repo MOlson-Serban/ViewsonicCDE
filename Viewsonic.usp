@@ -8,8 +8,6 @@
 
 #USER_SIMPLSHARP_LIBRARY "ViewsonicCDE"
 
-//Test
-
 // ----- Parameters -----
 Integer_Parameter _skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,_skip_,Port;
 String_Parameter IPAddress[32];
@@ -36,7 +34,8 @@ DIGITAL_INPUT Volume_Up;
 DIGITAL_INPUT Volume_Down;
 
 // 1 = HDMI 1, 2 = HDMI 2, 3 = DP, 4 = VGA
-DIGITAL_INPUT Input_Poll[4,4];
+// (Selects an input; not a poll despite the legacy naming history.)
+DIGITAL_INPUT Input_Select[4,4];
 
 // ----- Outputs -----
 DIGITAL_OUTPUT Connected_fb;
@@ -45,13 +44,33 @@ ANALOG_OUTPUT  Current_Input_fb;
 ANALOG_OUTPUT  Current_Volume_Out;
 
 // ----- Global Variables -----
-DisplayController myDisplay; 
+DisplayController myDisplay;
+
+// Local shadow of current volume so ramping doesn't depend on round-trip feedback.
+INTEGER volumeState;
 
 // ----- Callback Functions from C# -----
 CALLBACK FUNCTION OnConnectionCallback(INTEGER state) { Connected_fb = state; }
 CALLBACK FUNCTION OnPowerCallback(INTEGER state)      { Is_Power_On_fb = state; }
-CALLBACK FUNCTION OnInputCallback(INTEGER val)        { Current_Input_fb = val; }
-CALLBACK FUNCTION OnVolumeCallback(INTEGER val)       { Current_Volume_Out = val; }
+
+// Map the raw Viewsonic input code back to the logical index (1-4) used on the input side.
+CALLBACK FUNCTION OnInputCallback(INTEGER val)
+{
+    SWITCH (val)
+    {
+        CASE(4):  { Current_Input_fb = 1; }  // HDMI 1
+        CASE(14): { Current_Input_fb = 2; }  // HDMI 2
+        CASE(9):  { Current_Input_fb = 3; }  // DP
+        CASE(6):  { Current_Input_fb = 4; }  // VGA
+        DEFAULT:  { Current_Input_fb = 0; }  // Unknown / not selected
+    }
+}
+
+CALLBACK FUNCTION OnVolumeCallback(INTEGER val)
+{
+    Current_Volume_Out = val;
+    volumeState = val; // Reconcile the shadow with the device's reported value
+}
 
 // ----- SIMPL+ Logic -----
 PUSH Connect
@@ -70,7 +89,7 @@ PUSH Poll_Power  { myDisplay.PollPower(); }
 PUSH Poll_Volume { myDisplay.PollVolume(); }
 PUSH Poll_Input  { myDisplay.PollInput(); }
 
-PUSH Input_Poll
+PUSH Input_Select
 {
     INTEGER i;
     INTEGER viewsonicInputVal;
@@ -100,28 +119,4 @@ PUSH Input_Poll
 
 PUSH Volume_Up
 {
-    // Uses the Output signal as the single source of truth for current state
-    IF (Current_Volume_Out < 100) 
-    {
-        myDisplay.SetVolume(Current_Volume_Out + 1);
-    }
-}
-
-PUSH Volume_Down
-{
-    IF (Current_Volume_Out > 0) 
-    {
-        myDisplay.SetVolume(Current_Volume_Out - 1);
-    }
-}
-
-// ----- Initialization -----
-FUNCTION Main()
-{
-    WaitForInitializationComplete();
-    
-    RegisterDelegate(myDisplay, OnConnectionChange, OnConnectionCallback);
-    RegisterDelegate(myDisplay, OnPowerChange, OnPowerCallback);
-    RegisterDelegate(myDisplay, OnInputChange, OnInputCallback);
-    RegisterDelegate(myDisplay, OnVolumeChange, OnVolumeCallback);
-}
+    // Drive from the local shadow so rapid p

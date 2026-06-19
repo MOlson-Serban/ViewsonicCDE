@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text;
 using System.Collections.Generic;
 using Crestron.SimplSharp;
@@ -15,6 +15,11 @@ namespace ViewsonicCDE
         private const int MAX_BUFFER_SIZE = 1024;
         private const int CMD_TIMEOUT_MS = 3000;
 
+        // Protocol / input limits
+        private const int MAX_QUEUE_DEPTH = 50;   // Bounds the command queue (fix #5)
+        private const ushort MAX_VOLUME = 100;    // Panel volume range 0-100
+        private const ushort MAX_INPUT_CODE = 999; // Fixed-width 3-digit input code
+
         // --- Infrastructure ---
         private TCPClient _tcpClient;
         private CTimer _heartbeatTimer;
@@ -30,10 +35,18 @@ namespace ViewsonicCDE
         private readonly object _timerLock = new object();
 
         // --- Command Queue Infrastructure ---
+        private enum CmdType
+        {
+            RawOrGet = 0,
+            Power = 1,
+            Input = 2,
+            Volume = 3
+        }
+
         private class QueuedCmd
         {
             public string CommandString;
-            public int CmdType; // 0=Raw/Get, 1=Power, 2=Input, 3=Volume
+            public CmdType Type;
             public ushort PendingValue;
             public bool IsDelay;
             public int DelayMs;
@@ -118,6 +131,7 @@ namespace ViewsonicCDE
                 lock (_timerLock)
                 {
                     StopTimer(ref _reconnectTimer);
+                    StopTimer(ref _heartbeatTimer); // Fix #1: dispose any prior heartbeat before re-creating
                     _heartbeatTimer = new CTimer(HeartbeatCallback, null, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS);
                 }
             }
@@ -156,9 +170,27 @@ namespace ViewsonicCDE
             // Exponential Backoff calculation
             _currentBackoffMs = Math.Min(_currentBackoffMs * 2, RECONNECT_MAX_MS);
 
-            if (_enableConnection && _tcpClient != null && _tcpClient.ClientStatus != SocketStatus.SOCKET_STATUS_CONNECTED)
+            // Fix #3: guard the async connect so a throw never escapes the timer thread.
+            try
             {
-                _tcpClient.ConnectToServerAsync(ConnectCallback);
+                if (_enableConnection && _tcpClient != null && _tcpClient.ClientStatus != SocketStatus.SOCKET_STATUS_CONNECTED)
+                {
+                    _tcpClient.ConnectToServerAsync(ConnectCallback);
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Error("ViewsonicCDE Reconnect Error: " + ex.Message);
+
+                // Reschedule another attempt so we don't get stuck without a pending reconnect.
+                if (_enableConnection)
+                {
+                    lock (_timerLock)
+                    {
+                        if (_reconnectTimer == null)
+                            _reconnectTimer = new CTimer(ReconnectCallback, null, _currentBackoffMs);
+                    }
+                }
             }
         }
 
@@ -196,11 +228,17 @@ namespace ViewsonicCDE
         // =========================================================================
         // COMMAND QUEUE & TRANSMISSION
         // =========================================================================
-        private void EnqueueCommand(string command, int type, ushort val)
+        private void EnqueueCommand(string command, CmdType type, ushort val)
         {
             lock (_queueLock)
             {
-                _cmdQueue.Enqueue(new QueuedCmd { CommandString = command, CmdType = type, PendingValue = val, IsDelay = false });
+                // Fix #5: bound the queue so an unresponsive panel can't grow it without limit.
+                if (_cmdQueue.Count >= MAX_QUEUE_DEPTH)
+                {
+                    ErrorLog.Notice("ViewsonicCDE: Command queue full, dropping command.");
+                    return;
+                }
+                _cmdQueue.Enqueue(new QueuedCmd { CommandString = command, Type = type, PendingValue = val, IsDelay = false });
             }
             ProcessQueue();
         }
@@ -209,6 +247,11 @@ namespace ViewsonicCDE
         {
             lock (_queueLock)
             {
+                if (_cmdQueue.Count >= MAX_QUEUE_DEPTH)
+                {
+                    ErrorLog.Notice("ViewsonicCDE: Command queue full, dropping delay.");
+                    return;
+                }
                 _cmdQueue.Enqueue(new QueuedCmd { IsDelay = true, DelayMs = delayMs });
             }
             ProcessQueue();
@@ -276,17 +319,30 @@ namespace ViewsonicCDE
             lock (_timerLock) { StopTimer(ref _queueTimer); }
         }
 
-        private void SendCallback(TCPClient client, int numberOfBytesSent) { }
+        private void SendCallback(TCPClient client, int numberOfBytesSent)
+        {
+            // Fix #8: surface short/failed sends instead of silently waiting for a timeout.
+            if (numberOfBytesSent <= 0)
+                ErrorLog.Notice("ViewsonicCDE: Send reported 0 bytes (socket may be closing).");
+        }
 
         // =========================================================================
         // RECEPTION & PARSING
         // =========================================================================
         private void ReceiveCallback(TCPClient client, int numberOfBytesReceived)
         {
-            if (numberOfBytesReceived > 0)
+            try
             {
+                // Fix #4: a non-positive count signals a closed/aborted read; let
+                // OnSocketStatusChange handle the disconnect and don't re-arm here.
+                if (numberOfBytesReceived <= 0)
+                    return;
+
                 string incoming = Encoding.ASCII.GetString(client.IncomingDataBuffer, 0, numberOfBytesReceived);
 
+                // Fix #6: extract complete frames under the buffer lock, then dispatch
+                // (invoke delegates + advance the queue) outside the lock.
+                List<string> messages = new List<string>();
                 lock (_bufferLock)
                 {
                     _rxBuffer += incoming;
@@ -303,104 +359,131 @@ namespace ViewsonicCDE
                         ErrorLog.Notice("ViewsonicCDE: Buffer trimmed to prevent overflow.");
                     }
 
-                    ParseBuffer();
+                    ExtractMessages(messages);
                 }
 
-                client.ReceiveDataAsync(ReceiveCallback);
+                foreach (string msg in messages)
+                    HandleMessage(msg);
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Error("ViewsonicCDE Receive Error: " + ex.Message);
+            }
+            finally
+            {
+                // Fix #4: always re-arm reception while the socket is up, regardless of
+                // how the body above exited.
+                if (client != null && client.ClientStatus == SocketStatus.SOCKET_STATUS_CONNECTED)
+                    client.ReceiveDataAsync(ReceiveCallback);
             }
         }
 
-        private void ParseBuffer()
+        // Caller must hold _bufferLock.
+        private void ExtractMessages(List<string> messages)
         {
             int crPos = _rxBuffer.IndexOf('\x0D');
             while (crPos >= 0)
             {
-                string msg = _rxBuffer.Substring(0, crPos);
+                messages.Add(_rxBuffer.Substring(0, crPos));
                 _rxBuffer = _rxBuffer.Substring(crPos + 1);
-
-                // Variables for safe delegate invocation
-                Action safeInvoke = null;
-
-                if (msg.Length >= 4) // Validation
-                {
-                    char typeChar = msg[3];
-
-                    // --- ACK Handling ---
-                    if (typeChar == '+')
-                    {
-                        lock (_queueLock)
-                        {
-                            if (_activeCmd != null && _activeCmd.CmdType != 0)
-                            {
-                                ushort val = _activeCmd.PendingValue;
-                                if (_activeCmd.CmdType == 1) safeInvoke = () => OnPowerChange?.Invoke(val);
-                                else if (_activeCmd.CmdType == 2) safeInvoke = () => OnInputChange?.Invoke(val);
-                                else if (_activeCmd.CmdType == 3) safeInvoke = () => OnVolumeChange?.Invoke(val);
-                            }
-                            ClearActiveCommand(); // Command acknowledged, advance queue
-                        }
-                    }
-                    // --- NACK Handling ---
-                    else if (typeChar == '-')
-                    {
-                        ErrorLog.Notice("ViewsonicCDE: Command Rejected.");
-                        lock (_queueLock) { ClearActiveCommand(); }
-                    }
-                    // --- Read Reply Handling ---
-                    else if (typeChar == 'r' && msg.Length >= 8)
-                    {
-                        char cmdChar = msg[4];
-                        string valString = msg.Substring(5, 3);
-
-                        // Validation of TryParse
-                        if (ushort.TryParse(valString, out ushort parsedVal))
-                        {
-                            if (cmdChar == '!')
-                            {
-                                if (valString == "001") safeInvoke = () => OnPowerChange?.Invoke(1);
-                                else if (valString == "000") safeInvoke = () => OnPowerChange?.Invoke(0);
-                            }
-                            else if (cmdChar == 'f') safeInvoke = () => OnVolumeChange?.Invoke(parsedVal);
-                            else if (cmdChar == '"') safeInvoke = () => OnInputChange?.Invoke(parsedVal);
-                        }
-
-                        lock (_queueLock) { ClearActiveCommand(); } // Read reply fulfills a Get request
-                    }
-                }
-
-                // Invoke safely outside of all locks
-                safeInvoke?.Invoke();
-
-                // Trigger next item in queue
-                ProcessQueue();
-
                 crPos = _rxBuffer.IndexOf('\x0D');
             }
+        }
+
+        private void HandleMessage(string msg)
+        {
+            // Variable for safe delegate invocation
+            Action safeInvoke = null;
+
+            if (msg.Length >= 4) // Validation
+            {
+                char typeChar = msg[3];
+
+                // --- ACK Handling ---
+                if (typeChar == '+')
+                {
+                    lock (_queueLock)
+                    {
+                        if (_activeCmd != null && _activeCmd.Type != CmdType.RawOrGet)
+                        {
+                            ushort val = _activeCmd.PendingValue;
+                            if (_activeCmd.Type == CmdType.Power) safeInvoke = () => OnPowerChange?.Invoke(val);
+                            else if (_activeCmd.Type == CmdType.Input) safeInvoke = () => OnInputChange?.Invoke(val);
+                            else if (_activeCmd.Type == CmdType.Volume) safeInvoke = () => OnVolumeChange?.Invoke(val);
+                        }
+                        ClearActiveCommand(); // Command acknowledged, advance queue
+                    }
+                }
+                // --- NACK Handling ---
+                else if (typeChar == '-')
+                {
+                    ErrorLog.Notice("ViewsonicCDE: Command Rejected.");
+                    lock (_queueLock) { ClearActiveCommand(); }
+                }
+                // --- Read Reply Handling ---
+                else if (typeChar == 'r' && msg.Length >= 8)
+                {
+                    char cmdChar = msg[4];
+                    string valString = msg.Substring(5, 3);
+
+                    // Validation of TryParse
+                    if (ushort.TryParse(valString, out ushort parsedVal))
+                    {
+                        if (cmdChar == '!')
+                        {
+                            if (valString == "001") safeInvoke = () => OnPowerChange?.Invoke(1);
+                            else if (valString == "000") safeInvoke = () => OnPowerChange?.Invoke(0);
+                        }
+                        else if (cmdChar == 'f') safeInvoke = () => OnVolumeChange?.Invoke(parsedVal);
+                        else if (cmdChar == '"') safeInvoke = () => OnInputChange?.Invoke(parsedVal);
+                    }
+
+                    lock (_queueLock) { ClearActiveCommand(); } // Read reply fulfills a Get request
+                }
+            }
+
+            // Invoke safely outside of all locks
+            safeInvoke?.Invoke();
+
+            // Trigger next item in queue
+            ProcessQueue();
         }
 
         // =========================================================================
         // PUBLIC CONTROL METHODS
         // =========================================================================
-        public void PowerOn() { EnqueueCommand("801s!001\x0D", 1, 1); }
-        public void PollPower() { EnqueueCommand("501g!\x0D", 0, 0); }
-        public void PollVolume() { EnqueueCommand("501gf\x0D", 0, 0); }
-        public void PollInput() { EnqueueCommand("501g\"\x0D", 0, 0); }
+        public void PowerOn() { EnqueueCommand("801s!001\x0D", CmdType.Power, 1); }
+        public void PollPower() { EnqueueCommand("501g!\x0D", CmdType.RawOrGet, 0); }
+        public void PollVolume() { EnqueueCommand("501gf\x0D", CmdType.RawOrGet, 0); }
+        public void PollInput() { EnqueueCommand("501g\"\x0D", CmdType.RawOrGet, 0); }
 
         public void PowerOff()
         {
-            EnqueueCommand("801s!000\x0D", 1, 0);
+            EnqueueCommand("801s!000\x0D", CmdType.Power, 0);
             EnqueueDelay(750);
-            EnqueueCommand("801sA004\x0D", 0, 0);
+            EnqueueCommand("801sA004\x0D", CmdType.RawOrGet, 0);
         }
 
         public void SetInput(ushort inputVal)
         {
-            EnqueueCommand(string.Format("801s\"{0:D3}\x0D", inputVal), 2, inputVal);
+            // Fix #2: clamp to the 3-digit field so a large value can't break frame width.
+            if (inputVal > MAX_INPUT_CODE)
+            {
+                ErrorLog.Notice(string.Format("ViewsonicCDE: Input {0} out of range, clamping to {1}.", inputVal, MAX_INPUT_CODE));
+                inputVal = MAX_INPUT_CODE;
+            }
+            EnqueueCommand(string.Format("801s\"{0:D3}\x0D", inputVal), CmdType.Input, inputVal);
         }
 
         public void SetVolume(ushort volVal)
         {
-            EnqueueCommand(string.Format("801sf{0:D3}\x0D", volVal), 3, volVal);
+            // Fix #2: clamp to the panel's volume range and keep the field 3 digits wide.
+            if (volVal > MAX_VOLUME)
+            {
+                ErrorLog.Notice(string.Format("ViewsonicCDE: Volume {0} out of range, clamping to {1}.", volVal, MAX_VOLUME));
+                volVal = MAX_VOLUME;
+            }
+            EnqueueCommand(string.Format("801sf{0:D3}\x0D", volVal), CmdType.Volume, volVal);
         }
     }
 }
