@@ -1,0 +1,13 @@
+# Normalize all text files: store LF in the repo, check out CRLF on every clone.
+# This repo targets the Crestron SIMPL+ editor and Visual Studio on Windows,
+# which expect CRLF. Enforcing it here prevents "fragmented" (line-break-less)
+# files when the repo is cloned to another machine or drive.
+* text=auto eol=crlf
+
+# Crestron / build binaries — never apply line-ending conversion.
+*.clz  binary
+*.lpz  binary
+*.dll  binary
+*.dat  binary
+*.der  binary
+*.pkg  binary
